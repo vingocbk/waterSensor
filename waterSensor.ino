@@ -1,21 +1,21 @@
 #include "waterSensor.h"
 
-
-void handleOk() {
-    server.sendHeader("Access-Control-Allow-Headers", "*");
-    server.sendHeader("Access-Control-Allow-Methods", "*");
-    server.sendHeader("Access-Control-Allow-Origin", "*");
-    server.send(200, "application/json; charset=utf-8", "{\"status\":\"success\"}");
-}
-
-void handleRoot() {
-    server.send(200, "text/html", "<h1>You are connected</h1>");
-    ECHOLN("done!");
-}
-
 void getStatus(){
-    server.send(200, "text/html", "{\"status\":\"success\"}");
-    ECHOLN("getstatus");
+    String datasend = "{\"deviceid\" : \"";
+    datasend += String(deviceId);
+    datasend += "\", \"devicetype\" : \"watersensor\", \"typecontrol\" : \"getstatus\",  \"number_disconnect\" : \"";
+    datasend += String(countDisconnectToServer - 1);
+    datasend += "\", \"all_time\" : \"";
+    datasend += String(sum_time_disconnect_to_sever);
+    datasend +=  "\", \"data\" : \"";
+    if(isHaveWater == true){
+        datasend += "yes\"}";
+        client.publish(topicsendStatus, datasend.c_str());
+    }else{
+        datasend += "no\"}";
+        client.publish(topicsendStatus, datasend.c_str());
+    }
+    ECHOLN("-------getStatus-------");
 }
 
 
@@ -24,48 +24,8 @@ void setLedApMode() {
 }
 
 
-void setupIP(){
-    // config static IP
-    IPAddress ip(first_octet, second_octet, third_octet, fourth_octet); // where xx is the desired IP Address
-    IPAddress gateway(first_octet, second_octet, third_octet, 1); // set gateway to match your network
-    IPAddress subnet(255, 255, 255, 0); // set subnet mask to match your network
-    WiFi.config(ip, gateway, subnet);
-}
 
 
-void detachIP(String ip){
-    String first_octetStr = "";
-    String second_octetStr = "";
-    String third_octetStr = "";
-    String fourth_octetStr = "";
-    for(int i = 0, j = 0; i <= sizeof(ip)+1; i++){
-        char c = ip[i];
-        if(c == '.'){
-            j++;
-            continue;
-        }
-        switch(j){
-            case 0:
-                first_octetStr += c;
-                break;
-            case 1:
-                second_octetStr += c;
-                break;
-            case 2:
-                third_octetStr += c;
-                break;
-            case 3:
-                fourth_octetStr += c;
-                break;
-        }
-
-    }
-
-    first_octet = atoi(first_octetStr.c_str());
-    second_octet = atoi(second_octetStr.c_str());
-    third_octet = atoi(third_octetStr.c_str());
-    fourth_octet = atoi(fourth_octetStr.c_str());
-}
 
 void ConfigMode(){
     StaticJsonBuffer<RESPONSE_LENGTH> jsonBuffer;
@@ -73,6 +33,7 @@ void ConfigMode(){
     JsonObject& rootData = jsonBuffer.parseObject(server.arg("plain"));
     ECHOLN("--------------");
     tickerSetApMode.stop();
+    digitalWrite(LED_TEST_AP, LOW);
     if (rootData.success()) {
         server.sendHeader("Access-Control-Allow-Headers", "*");
         server.sendHeader("Access-Control-Allow-Origin", "*");
@@ -80,53 +41,17 @@ void ConfigMode(){
         //server.stop();
         String nssid = rootData["ssid"];
         String npass = rootData["password"];
-        String ip = rootData["set_ip"];
-        String ipsend = rootData["ip_send"];
+        String nid = rootData["deviceid"];
+        String nserver = rootData["server"];
 
-        detachIP(ip); 
-        ECHO("Wifi new name: ");
-        ECHOLN(nssid);
-        ECHO("Wifi new password: ");
-        ECHOLN(npass);
-        ECHO("Wifi new IP: ");
-        ECHO(first_octet);
-        ECHO(".");
-        ECHO(second_octet);
-        ECHO(".");
-        ECHO(third_octet);
-        ECHO(".");
-        ECHOLN(fourth_octet);
-        ECHO("Wifi new IPSEND: ");
-        ECHOLN(ipsend);
-        if (connectToWifi(nssid, npass, ip, ipsend)) {
-            esid = nssid;
-            epass = npass;
-            eipSend = ipsend;
-            StartNormalSever();
-            Flag_Normal_Mode = true;
-            return;
-        }
 
-        ECHOLN("Wrong wifi!!!");
-        SetupConfigMode();
-        StartConfigServer();
-        return;
-    }
-    ECHOLN("Wrong data!!!");
-}
+        esid = nssid;
+        epass = npass;
+        deviceId = nid.toInt();
+        sever = nserver;
 
-bool connectToWifi(String nssid, String npass, String ip, String ipsend) {
-    ECHOLN("Open STA....");
-    WiFi.softAPdisconnect();
-    WiFi.disconnect();
-    WiFi.mode(WIFI_STA);
-    delay(100);
-    setupIP();
-    //WiFi.begin(nssid.c_str(), npass.c_str());
-
-    if (testWifi(nssid, npass)) {
         ECHOLN("clearing eeprom");
-        for (int i = 0; i < EEPROM_WIFI_MAX_CLEAR; ++i){ 
+        for (int i = 0; i <= EEPROM_WIFI_SERVER_END; i++){ 
             EEPROM.write(i, 0); 
         }
         ECHOLN("writing eeprom ssid:");
@@ -143,28 +68,37 @@ bool connectToWifi(String nssid, String npass, String ip, String ipsend) {
             ECHO(npass[i]);
         }
         ECHOLN("");
-        ECHOLN("writing eeprom IP:"); 
+        ECHOLN("writing eeprom device id:"); 
         ECHO("Wrote: ");
-        for (int i = 0; i < ip.length(); ++i){
-            EEPROM.write(i+EEPROM_WIFI_IP_START, ip[i]);             
-            ECHO(ip[i]);
+        EEPROM.write(EEPROM_WIFI_DEVICE_ID, deviceId);
+        ECHOLN(deviceId);
+
+        ECHOLN("writing eeprom server:"); 
+        ECHO("Wrote: ");
+        for (int i = 0; i < nserver.length(); ++i){
+            EEPROM.write(i+EEPROM_WIFI_SERVER_START, nserver[i]);
+            ECHO(nserver[i]);
         }
         ECHOLN("");
-        EEPROM.commit();
-        ECHOLN("writing eeprom IPSEND:");
-        ECHO("Wrote: ");
-        for (int i = 0; i < ipsend.length(); ++i){
-            EEPROM.write(i+EEPROM_WIFI_IP_SEND_START, ipsend[i]);             
-            ECHO(ipsend[i]);
-        }
-        ECHOLN("");
+
         EEPROM.commit();
         ECHOLN("Done writing!");
-        return true;
-    }
 
-    return false;
+        if (testWifi(nssid, npass)) {
+
+            // ConnecttoMqttServer();
+            Flag_Normal_Mode = true;
+            return;
+        }
+        tickerSetApMode.start();
+        ECHOLN("Wrong wifi!!!");
+        SetupConfigMode();
+        StartConfigServer();
+        return;
+    }
+    ECHOLN("Wrong data!!!");
 }
+
 
 
 bool testWifi(String esid, String epass) {
@@ -173,26 +107,34 @@ bool testWifi(String esid, String epass) {
     WiFi.softAPdisconnect();
     WiFi.disconnect();
     server.close();
-    delay(1000);
-    setupIP();      //cai dat ip theo quy dinh
+    ECHO("delay: ");
+    ECHOLN((deviceId)*3000 + 1000);
+    for(int i = 0; i < 100; i++){
+        if(digitalRead(PIN_CONFIG) == LOW){
+            break;
+        }
+        delay(((deviceId)*3000 + 1000)/100);
+    }
+
     WiFi.mode(WIFI_STA);        //bat che do station
     WiFi.begin(esid.c_str(), epass.c_str());
     int c = 0;
     ECHOLN("Waiting for Wifi to connect");
-    while (c < 20) {
+    while (c < 40) {
         if (WiFi.status() == WL_CONNECTED) {
             ECHOLN("\rWifi connected!");
             ECHO("Local IP: ");
             ECHOLN(WiFi.localIP());
             digitalWrite(LED_TEST_AP, LOW);
+            ConnecttoMqttServer();
             return true;
+        }
+        if(digitalRead(PIN_CONFIG) == LOW){
+            break;
         }
         delay(500);
         ECHO(".");
         c++;
-        if(digitalRead(PIN_CONFIG) == LOW){
-            break;
-        }
     }
     ECHOLN("");
     ECHOLN("Connect timed out");
@@ -206,8 +148,8 @@ String GetFullSSID() {
     WiFi.softAPmacAddress(mac);
     macID = String(mac[WL_MAC_ADDR_LENGTH - 2], HEX) + String(mac[WL_MAC_ADDR_LENGTH - 1], HEX);
     macID.toUpperCase();
-    macID = SSID_PRE_AP_MODE + macID;
     ECHO("[Helper][getIdentify] Identify: ");
+    ECHO(SSID_PRE_AP_MODE);
     ECHOLN(macID);
     return macID;
 }
@@ -231,13 +173,13 @@ void SetupConfigMode(){
     WiFi.softAPdisconnect();
     WiFi.disconnect();
     server.close();
-    delay(1000);
+    delay(500);
     WiFi.mode(WIFI_AP_STA);
     IPAddress APIP(192, 168, 4, 1);
     IPAddress gateway(192, 168, 4, 1);
     IPAddress subnet(255, 255, 255, 0);
     WiFi.softAPConfig(APIP, gateway, subnet);
-    String SSID_AP_MODE = GetFullSSID();
+    String SSID_AP_MODE = SSID_PRE_AP_MODE + GetFullSSID();
     WiFi.softAP(SSID_AP_MODE.c_str(), PASSWORD_AP_MODE);
     ECHOLN(SSID_AP_MODE);
 
@@ -246,25 +188,17 @@ void SetupConfigMode(){
     ECHO("[WifiService][setupAP] IP address: ");
     ECHOLN(myIP);
 }
+
+
 void StartConfigServer(){    
     ECHOLN("[HttpServerH][startConfigServer] Begin create new server...");
-//    server = new ESP8266WebServer(HTTP_PORT);
-    server.on("/", HTTP_GET, handleRoot);
     server.on("/config", HTTP_POST, ConfigMode);
-    server.on("/", HTTP_OPTIONS, handleOk);
-    server.on("/config", HTTP_OPTIONS, handleOk);
     server.begin();
     ECHOLN("[HttpServerH][startConfigServer] HTTP server started");
 }
 
 
 
-void SetupNomalMode(){
-    SetupNetwork();
-    if (WiFi.status() == WL_CONNECTED){
-        StartNormalSever();
-    }    
-}
 
 
 void SetupNetwork() {
@@ -282,35 +216,112 @@ void SetupNetwork() {
     }
     ECHO("PASS: ");
     ECHOLN(epass);
-    ECHOLN("Reading EEPROM IP");
-    eip = "";
-    for (int i = EEPROM_WIFI_IP_START; i < EEPROM_WIFI_IP_END; ++i){
-        eip += char(EEPROM.read(i));
+
+    ECHOLN("Reading EEPROM Device ID");
+    deviceId = EEPROM.read(EEPROM_WIFI_DEVICE_ID);
+    ECHO("ID: ");
+    ECHOLN(deviceId);
+
+    ECHOLN("Reading EEPROM server");
+    sever = "";
+    for (int i = EEPROM_WIFI_SERVER_START; i < EEPROM_WIFI_SERVER_END; ++i){
+        sever += char(EEPROM.read(i));
     }
-    ECHO("IP: ");
-    ECHOLN(eip);
-    detachIP(eip);  //tach ip thanh 4 kieu uint8_t
-    eipSend = "";
-    for (int i = EEPROM_WIFI_IP_SEND_START; i < EEPROM_WIFI_IP_SEND_END; ++i){
-        if(char(EEPROM.read(i)) == '\0'){
-            break;
-        }
-        eipSend += char(EEPROM.read(i));
-    }
-    ECHO("IPSEND: ");
-    ECHO(eipSend);
-    ECHO("-------IP");
+    ECHO("SERVER: ");
+    ECHOLN(sever);
+    
     testWifi(esid, epass);
 }
 
-void StartNormalSever(){
-    server.on("/", HTTP_GET, handleRoot);
-    server.on("/getstatus", HTTP_GET, getStatus);
-    server.on("/", HTTP_OPTIONS, handleOk);
-    server.on("/getstatus", HTTP_OPTIONS, getStatus);
-    server.begin();
-    ECHOLN("HTTP server started");
+
+void ConnecttoMqttServer(){
+    // client.setServer(mqtt_server, MQTT_PORT);
+    client.setServer(sever.c_str(), MQTT_PORT);
+    client.setCallback(callbackMqttBroker);
+    reconnect();
 }
+
+
+void callbackMqttBroker(char* topic, byte* payload, unsigned int length){
+    
+    String Topic = String(topic);
+    ECHO("TOPIC: ");
+    ECHOLN(Topic);
+
+    String data;
+    for (int i = 0; i < length; i++) {
+        data += char(payload[i]);
+    }
+    ECHO("DATA: ");
+    ECHOLN(data);
+    StaticJsonBuffer<RESPONSE_LENGTH> jsonBuffer;
+    JsonObject& rootData = jsonBuffer.parseObject(data);
+
+    if (rootData.success()){
+        //--------------getstatus-------------
+        if(rootData["typedevice"] == m_Typedevice){
+            int arraySize = rootData["deviceid"].size();   //get size of JSON Array
+            int sensorValue[arraySize];
+            bool isTrueControl = false;
+            for (int i = 0; i < arraySize; i++) { //Iterate through results
+                sensorValue[i] = rootData["deviceid"][i];  //Implicit cast
+                // ECHOLN(sensorValue[i]);
+                if(sensorValue[i] == deviceId){
+                    isTrueControl = true;
+                    break;
+                }
+            }
+            if(isTrueControl == true){
+                String dataType = rootData["typecontrol"];
+                //---------getstatus------------------
+                if(dataType == "getstatus"){
+                    getStatus();
+                }
+            }
+        }
+    }
+}
+
+
+
+
+bool reconnect() {
+    // Loop until we're reconnected
+    ECHO("Attempting MQTT connection...");
+    // Create a random client ID
+    String clientId = "ESP32Avy-";
+    // clientId += GetFullSSID;
+    clientId += String(random(0xffffff), HEX);
+    // Attempt to connect
+    if (client.connect(clientId.c_str(), m_userNameServer, m_passSever)) {
+        ECHO("connected with id: ");
+        ECHOLN(clientId);
+        // Once connected, publish an announcement...
+        // client.publish("outTopic", "hello world");
+        // ... and resubscribe
+        // String topicGetstatus = m_Pretopic + m_Getstatus;
+        String topicControl = m_Pretopic + m_Control;
+
+        client.subscribe(topicControl.c_str());
+        ECHO("Done Subscribe Channel: ");
+        // ECHO(topicGetstatus);
+        // ECHO("  +  ");
+        ECHOLN(topicControl);
+        countDisconnectToServer++;
+        if(flag_disconnect_to_sever == true){
+            sum_time_disconnect_to_sever += millis() - count_time_disconnect_to_sever;
+            flag_disconnect_to_sever = false;
+        }
+        getStatus();
+    } 
+    if(!client.connected()){
+        ECHO("failed, rc=");
+        ECHO(client.state());
+        ECHOLN(" try again in 2 seconds");
+    }
+    return client.connected();
+}
+
 
 
 void tickerupdate(){
@@ -324,51 +335,26 @@ void setup(void)
     pinMode(LED_TEST_AP, OUTPUT);
     pinMode(PIN_CONFIG, INPUT_PULLUP);
     pinMode(PIN_WATER, INPUT_PULLUP);
+//    pinMode(PIN_GAS, INPUT_PULLUP);
     digitalWrite(LED_TEST_AP, HIGH);
 
-    SetupNomalMode();     //khi hoat dong binh thuong
+    SetupNetwork();     //khi hoat dong binh thuong
 }
+
+
 
 void loop(void)
 {
-    HTTPClient httpclient;
     if (Flag_Normal_Mode == true && WiFi.status() != WL_CONNECTED){
           digitalWrite(LED_TEST_AP, HIGH);
-          if (testWifi(esid, epass)){
-              StartNormalSever();
-          } 
+          testWifi(esid, epass);
     } 
 
     if(isCanSending == true && digitalRead(PIN_WATER) == LOW && isHaveWater == false){
         Time = millis();
         isHaveWater = true;
         isCanSending = false;
-        String ipsend;
-        ipsend = "http://" + eipSend;
-        ipsend += ":8888/caution";
-//        ipsend = "http://10.10.9.122:8888/caution";
-        httpclient.begin(ipsend); //HTTP
-        ECHOLN(ipsend);
-        // start connection and send HTTP header
-        int httpCode = httpclient.GET();
-
-        // httpCode will be negative on error
-        if (httpCode > 0) {
-            // HTTP header has been send and Server response header has been handled
-            ECHO("[HTTP] GET... code: ");
-            ECHOLN(httpCode);
-
-            // file found at server
-            if (httpCode == HTTP_CODE_OK) {
-                String payload = httpclient.getString();
-                ECHOLN(payload);
-            }
-        }else {
-            ECHO("[HTTP] GET... failed, error: ");
-            ECHOLN(httpclient.errorToString(httpCode).c_str());
-        }
-
-        httpclient.end();
+        getStatus();
     }
     if(digitalRead(PIN_WATER) == HIGH && isHaveWater == true){
         isHaveWater = false;
@@ -377,8 +363,31 @@ void loop(void)
     }
 
 
-    if(millis() >= (Time + TIME_KEEP_SENDING)){
+    if(millis() >= (Time + TIME_KEEP_SENDING) && digitalRead(PIN_WATER) == HIGH){
         isCanSending = true;
+    }
+
+
+    if(WiFi.status() == WL_CONNECTED){
+        if (!client.connected()) {
+            if(flag_disconnect_to_sever == false){
+                count_time_disconnect_to_sever = millis();
+                lastReconnectAttempt = millis();
+                flag_disconnect_to_sever = true;
+            }
+            unsigned long nowReconnectAttempt = millis();
+
+            if (abs(nowReconnectAttempt - lastReconnectAttempt) > 3000) {
+                lastReconnectAttempt = nowReconnectAttempt;
+                reconnect();
+            }
+        }else{
+            unsigned long nowClientMqttLoop = millis();
+            if (abs(nowClientMqttLoop - lastClientMqttLoop) > delay_mqtt_loop) {
+                lastClientMqttLoop = nowClientMqttLoop;
+                client.loop();
+            }
+        }
     }
     
     checkButtonConfigClick();
